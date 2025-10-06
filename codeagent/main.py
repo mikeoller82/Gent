@@ -2,10 +2,17 @@ import os
 import sys
 import asyncio
 from dotenv import load_dotenv
-from google import genai
 import difflib
 
-from google.genai import types
+# Allow nested event loops for MCP
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except ImportError:
+    pass  # nest_asyncio is optional
+
+# Import OpenRouter provider instead of Gemini
+from codeagent.model_provider import initialize_openrouter
 
 from rich.syntax import Syntax
 from rich.console import Console
@@ -25,9 +32,6 @@ from codeagent.functions.get_files_info import get_files_info
 from codeagent.functions.get_file_content import get_file_content
 from codeagent.functions.run_python_file import run_python_file
 from codeagent.functions.write_file import write_file
-
-# Import MCP integration
-from codeagent.mcp_integration import GentMCPIntegration
 
 # Initialize rich console
 console = Console()
@@ -49,12 +53,14 @@ BANNER = """
 ╚═══════════════════════════════════════════════════════════════╝
 """
 
-# Load environment
 load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
 
-# Initialize Gemini client
-client = genai.Client(api_key=api_key)
+# Initialize OpenRouter client (will prompt for model selection)
+try:
+    client = initialize_openrouter()
+except Exception as e:
+    console.print(f"[red]Failed to initialize OpenRouter: {e}[/red]")
+    sys.exit(1)
 
 # Global MCP integration instance
 mcp_integration = None
@@ -77,7 +83,7 @@ NATIVE_SCHEMAS = [
 
 
 def clean_schema_for_gemini(schema):
-    """Remove fields that Gemini doesn't accept from JSON schema."""
+    """Remove fields that OpenAI/OpenRouter doesn't accept from JSON schema."""
     if not isinstance(schema, dict):
         return schema
     
@@ -102,29 +108,37 @@ def clean_schema_for_gemini(schema):
 
 def create_available_functions_tool():
     """Create the tool with native + MCP function declarations."""
-    declarations = NATIVE_SCHEMAS.copy()
+    from codeagent.model_provider import MockFunctionDeclaration, MockTool
+    
+    declarations = []
+    
+    # Add native functions
+    for schema in NATIVE_SCHEMAS:
+        declarations.append(schema)
     
     # Add MCP functions if available
     if mcp_integration:
-        mcp_functions = mcp_integration.get_gemini_functions()
-        
-        # Convert MCP function format to Gemini schema format
-        for mcp_func in mcp_functions:
-            # Clean the parameters schema
-            parameters = mcp_func.get("parameters", {
-                "type": "object",
-                "properties": {},
-            })
-            cleaned_parameters = clean_schema_for_gemini(parameters)
+        try:
+            mcp_functions = mcp_integration.get_gemini_functions()
             
-            declaration = types.FunctionDeclaration(
-                name=mcp_func["name"],
-                description=mcp_func["description"],
-                parameters=cleaned_parameters
-            )
-            declarations.append(declaration)
+            # Convert MCP function format
+            for mcp_func in mcp_functions:
+                parameters = mcp_func.get("parameters", {
+                    "type": "object",
+                    "properties": {},
+                })
+                cleaned_parameters = clean_schema_for_gemini(parameters)
+                
+                declaration = MockFunctionDeclaration(
+                    name=mcp_func["name"],
+                    description=mcp_func["description"],
+                    parameters=cleaned_parameters
+                )
+                declarations.append(declaration)
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not load MCP functions: {e}[/yellow]")
     
-    return types.Tool(function_declarations=declarations)
+    return MockTool(function_declarations=declarations)
 
 
 system_prompt = """
@@ -235,23 +249,27 @@ def call_function(function_call_part, working_directory, verbose=False):
     
     # Check if it's an MCP function
     if function_name.startswith("mcp_"):
-        # Run async MCP function
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're already in an async context, create a task
-            result = asyncio.create_task(call_mcp_function(function_name, function_args, verbose))
-            result = loop.run_until_complete(result)
-        else:
+        try:
             result = asyncio.run(call_mcp_function(function_name, function_args, verbose))
+        except RuntimeError:
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+                loop = asyncio.get_event_loop()
+                result = loop.run_until_complete(call_mcp_function(function_name, function_args, verbose))
+            except ImportError:
+                result = {"error": "Cannot run async MCP function. Install nest-asyncio: pip install nest-asyncio"}
         
-        return types.Part.from_function_response(
+        from codeagent.model_provider import MockPart
+        return MockPart.from_function_response(
             name=function_name,
             response=result,
         )
     
     # Check if native function exists
     if function_name not in FUNCTION_MAP:
-        return types.Part.from_function_response(
+        from codeagent.model_provider import MockPart
+        return MockPart.from_function_response(
             name=function_name,
             response={"error": f"Unknown function: {function_name}"},
         )
@@ -262,7 +280,6 @@ def call_function(function_call_part, working_directory, verbose=False):
         new_content = function_args.get("content", "")
         full_path = os.path.join(working_directory, file_path)
         
-        # Read old content if file exists
         old_content = ""
         file_exists = os.path.exists(full_path) and os.path.isfile(full_path)
         
@@ -273,13 +290,11 @@ def call_function(function_call_part, working_directory, verbose=False):
             except:
                 old_content = ""
         
-        # Show what's happening
         if file_exists:
             console.print(f"[yellow]📝 Modifying {file_path}[/yellow]")
         else:
             console.print(f"[green]📄 Creating {file_path}[/green]")
         
-        # Generate and display diff
         if file_exists and old_content:
             old_lines = old_content.splitlines(keepends=True)
             new_lines = new_content.splitlines(keepends=True)
@@ -299,11 +314,9 @@ def call_function(function_call_part, working_directory, verbose=False):
                 console.print(syntax)
                 console.print()
         else:
-            # Show new file content (truncated if too long)
             console.print("\n[bold]New file content:[/bold]")
             display_content = new_content if len(new_content) < 500 else new_content[:500] + "\n... (truncated)"
             
-            # Detect language from file extension
             ext = file_path.split('.')[-1] if '.' in file_path else "text"
             lang_map = {
                 'py': 'python',
@@ -320,21 +333,16 @@ def call_function(function_call_part, working_directory, verbose=False):
             console.print(syntax)
             console.print()
     
-    # Add working_directory to the arguments
     function_args["working_directory"] = working_directory
-    
-    # Call the function
     function = FUNCTION_MAP[function_name]
     function_result = function(**function_args)
     
-    # Show success/failure for write operations
     if function_name == "write_file":
         if "Successfully wrote" in function_result:
             console.print(f"[green]✓ {function_result}[/green]")
         else:
             console.print(f"[red]✗ {function_result}[/red]")
     
-    # Show verbose result for other functions
     if verbose and function_name != "write_file":
         result_str = str(function_result)
         if len(result_str) > 200:
@@ -342,27 +350,28 @@ def call_function(function_call_part, working_directory, verbose=False):
         else:
             console.print(f"[dim]  Result: {result_str}[/dim]")
     
-    # Return the result as a Part
-    return types.Part.from_function_response(
+    from codeagent.model_provider import MockPart
+    return MockPart.from_function_response(
         name=function_name,
         response={"result": function_result},
     )
 
 
-def process_request(client, user_prompt, working_directory, verbose=False):
+def process_request(client_provider, user_prompt, working_directory, verbose=False):
     """Process a single user request - continues until task is complete."""
+    from codeagent.model_provider import MockContent, MockPart
+    
     messages = [
-        types.Content(role="user", parts=[types.Part(text=user_prompt)]),
+        MockContent(role="user", parts=[MockPart(text=user_prompt)]),
     ]
     
-    max_iterations = 100  # Safety limit
+    max_iterations = 100
     function_call_count = 0
     files_read = set()
     files_modified = set()
     
     console.print(f"[bold cyan]Starting task: {user_prompt}[/bold cyan]\n")
     
-    # Get current available functions (includes MCP if initialized)
     available_functions = create_available_functions_tool()
     
     for iteration in range(max_iterations):
@@ -370,21 +379,16 @@ def process_request(client, user_prompt, working_directory, verbose=False):
             if verbose:
                 console.print(f"[dim]--- Iteration {iteration + 1} ---[/dim]")
             
-            # Generate response
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=messages,
-                config=types.GenerateContentConfig(
-                    tools=[available_functions],
-                    system_instruction=system_prompt
-                ),
+            # Generate response using OpenRouter
+            response = client_provider.generate_content(
+                messages=messages,
+                tools=[available_functions],
+                system_instruction=system_prompt
             )
             
-            # Add the model's response to messages
             for candidate in response.candidates:
                 messages.append(candidate.content)
             
-            # Collect ALL function calls from this turn
             function_call_parts = []
             
             if response.candidates[0].content.parts:
@@ -392,7 +396,6 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                     if hasattr(part, 'function_call') and part.function_call:
                         function_call_parts.append(part)
             
-            # Execute function calls
             if function_call_parts:
                 function_call_count += len(function_call_parts)
                 function_response_parts = []
@@ -401,7 +404,6 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                     func_name = part.function_call.name
                     func_args = dict(part.function_call.args)
                     
-                    # Track what's being done
                     if func_name == "get_file_content":
                         file_path = func_args.get("file_path", "")
                         files_read.add(file_path)
@@ -409,28 +411,22 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                         file_path = func_args.get("file_path", "")
                         files_modified.add(file_path)
                     
-                    # Call the function (handles both native and MCP)
                     result_part = call_function(part.function_call, working_directory, verbose)
                     function_response_parts.append(result_part)
                 
-                # Create a single Content with all function response parts
-                combined_response = types.Content(
+                combined_response = MockContent(
                     role="tool",
                     parts=function_response_parts
                 )
                 
                 messages.append(combined_response)
                 
-                # Show progress
                 if verbose:
                     console.print(f"[dim]Progress: {function_call_count} calls, {len(files_read)} files read, {len(files_modified)} files modified[/dim]")
                 
-                # Continue iterating
                 continue
             
-            # Check for text response (task completion)
             if response.text:
-                # Check if this is a completion response or just asking questions
                 is_asking = any(phrase in response.text.lower() for phrase in [
                     "need more information",
                     "please provide",
@@ -438,20 +434,18 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                     "what do you want",
                 ])
                 
-                # If asking questions and hasn't done anything yet, redirect
                 if is_asking and function_call_count == 0:
                     if verbose:
                         console.print("[yellow]Redirecting agent to take action...[/yellow]")
                     
                     messages.append(
-                        types.Content(
+                        MockContent(
                             role="user",
-                            parts=[types.Part(text="DO NOT ask questions. Start by calling get_files_info('.') to explore, then take action autonomously.")]
+                            parts=[MockPart(text="DO NOT ask questions. Start by calling get_files_info('.') to explore, then take action autonomously.")]
                         )
                     )
                     continue
                 
-                # Task appears complete
                 console.print("\n[bold green]✓ Task Complete[/bold green]")
                 console.print(Panel(Markdown(response.text), border_style="green"))
                 
@@ -468,15 +462,13 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                 
                 break
             
-            # No function calls and no text - agent is stuck
             if verbose:
                 console.print("[yellow]No response, continuing...[/yellow]")
             
-            # Give it a gentle nudge to continue
             messages.append(
-                types.Content(
+                MockContent(
                     role="user",
-                    parts=[types.Part(text="Continue with your analysis and implementation. If you're done, provide a final summary.")]
+                    parts=[MockPart(text="Continue with your analysis and implementation. If you're done, provide a final summary.")]
                 )
             )
             
@@ -486,17 +478,15 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                 import traceback
                 console.print(f"[dim]{traceback.format_exc()}[/dim]")
             
-            # Try to recover
             console.print("[yellow]Attempting to recover...[/yellow]")
             messages.append(
-                types.Content(
+                MockContent(
                     role="user",
-                    parts=[types.Part(text="There was an error. Please analyze what went wrong and try a different approach.")]
+                    parts=[MockPart(text="There was an error. Please analyze what went wrong and try a different approach.")]
                 )
             )
             continue
     
-    # If we hit max iterations
     if iteration == max_iterations - 1:
         console.print(f"\n[red]⚠ Safety limit reached ({max_iterations} iterations)[/red]")
         console.print("[yellow]The agent made significant progress but didn't complete. Summary:[/yellow]")
@@ -504,13 +494,11 @@ def process_request(client, user_prompt, working_directory, verbose=False):
         console.print(f"  • Files modified: {len(files_modified)}")
 
 
-def interactive_mode(client, working_directory):
+def interactive_mode(client_provider, working_directory):
     """Run the agent in interactive mode with enhanced UI."""
-    # Display banner
     cwd_short = working_directory[-31:] if len(working_directory) > 31 else working_directory
     console.print(BANNER.format(cwd=cwd_short), style="bold blue")
     
-    # Show MCP status
     if mcp_integration:
         connected_servers = mcp_integration.get_connected_servers()
         console.print(f"[green]🔌 MCP Servers: {', '.join(connected_servers)}[/green]")
@@ -522,32 +510,26 @@ def interactive_mode(client, working_directory):
     
     while True:
         try:
-            # Get user input
             user_input = Prompt.ask("\n[bold yellow]You[/bold yellow]")
             
-            # Check for exit commands
             if user_input.lower() in ['exit', 'quit', 'q']:
                 console.print("\n[bold blue]Goodbye! 👋[/bold blue]")
                 break
             
-            # Check for clear command
             if user_input.lower() == 'clear':
                 console.clear()
                 console.print(BANNER.format(cwd=cwd_short), style="bold blue")
                 continue
             
-            # Skip empty inputs
             if not user_input.strip():
                 continue
             
-            # Check for verbose mode toggle
             verbose = False
             if user_input.startswith("--verbose "):
                 verbose = True
                 user_input = user_input[10:]
             
-            # Process the request
-            process_request(client, user_input, working_directory, verbose)
+            process_request(client_provider, user_input, working_directory, verbose)
             
         except KeyboardInterrupt:
             console.print("\n[dim]Use 'exit' to quit[/dim]")
@@ -560,25 +542,21 @@ async def initialize_mcp(servers=None):
     """Initialize MCP integration."""
     global mcp_integration
     
-    # Check if MCP is disabled
     if os.getenv("DISABLE_MCP", "").lower() in ["true", "1", "yes"]:
         console.print("[dim]MCP disabled via DISABLE_MCP environment variable[/dim]")
         mcp_integration = None
         return
     
     if servers is None:
-        # Check environment variable for enabled servers
         env_servers = os.getenv("MCP_ENABLED_SERVERS", "")
         if env_servers:
             servers = [s.strip() for s in env_servers.split(",")]
         else:
-            # Default to context7 only (most reliable)
             servers = ["context7"]
     
     console.print("\n[cyan]🔌 Initializing MCP servers...[/cyan]")
     
     try:
-        # Import here to catch import errors
         try:
             from codeagent.mcp_integration import GentMCPIntegration
         except ImportError as e:
@@ -590,13 +568,11 @@ async def initialize_mcp(servers=None):
         mcp_integration = GentMCPIntegration()
         await mcp_integration.initialize(servers)
         
-        # Check if any servers connected
         connected = mcp_integration.get_connected_servers()
         if connected:
             console.print("[green]✓ MCP integration ready![/green]")
             console.print(f"[green]Connected servers: {', '.join(connected)}[/green]")
             
-            # Show tool count
             for server in connected:
                 info = mcp_integration.get_server_info(server)
                 if info:
@@ -629,10 +605,8 @@ async def shutdown_mcp():
 
 def main():
     """Main entry point for the CLI."""
-    # Get current working directory
     working_directory = os.getcwd()
     
-    # Initialize MCP if enabled
     try:
         asyncio.run(initialize_mcp())
     except Exception as e:
@@ -640,9 +614,7 @@ def main():
         console.print("[yellow]Continuing with native functions only...[/yellow]")
     
     try:
-        # Check if running in interactive mode or single command mode
         if len(sys.argv) > 1:
-            # Single command mode
             command = " ".join(sys.argv[1:])
             verbose = "--verbose" in sys.argv
             if verbose:
@@ -650,11 +622,9 @@ def main():
             
             process_request(client, command, working_directory, verbose)
         else:
-            # Interactive mode
             interactive_mode(client, working_directory)
     
     finally:
-        # Cleanup MCP on exit
         if mcp_integration:
             try:
                 asyncio.run(shutdown_mcp())
