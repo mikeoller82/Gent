@@ -76,6 +76,30 @@ NATIVE_SCHEMAS = [
 ]
 
 
+def clean_schema_for_gemini(schema):
+    """Remove fields that Gemini doesn't accept from JSON schema."""
+    if not isinstance(schema, dict):
+        return schema
+    
+    # Fields to remove
+    remove_keys = ['additionalProperties', '$schema', 'definitions']
+    
+    cleaned = {}
+    for key, value in schema.items():
+        if key in remove_keys:
+            continue
+        
+        # Recursively clean nested objects
+        if isinstance(value, dict):
+            cleaned[key] = clean_schema_for_gemini(value)
+        elif isinstance(value, list):
+            cleaned[key] = [clean_schema_for_gemini(item) if isinstance(item, dict) else item for item in value]
+        else:
+            cleaned[key] = value
+    
+    return cleaned
+
+
 def create_available_functions_tool():
     """Create the tool with native + MCP function declarations."""
     declarations = NATIVE_SCHEMAS.copy()
@@ -86,13 +110,17 @@ def create_available_functions_tool():
         
         # Convert MCP function format to Gemini schema format
         for mcp_func in mcp_functions:
+            # Clean the parameters schema
+            parameters = mcp_func.get("parameters", {
+                "type": "object",
+                "properties": {},
+            })
+            cleaned_parameters = clean_schema_for_gemini(parameters)
+            
             declaration = types.FunctionDeclaration(
                 name=mcp_func["name"],
                 description=mcp_func["description"],
-                parameters=mcp_func.get("parameters", {
-                    "type": "object",
-                    "properties": {},
-                })
+                parameters=cleaned_parameters
             )
             declarations.append(declaration)
     
