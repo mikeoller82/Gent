@@ -429,20 +429,30 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                 continue
             
             # Check for text response (task completion)
-            if response.text:
+            # More robust check for text response
+            text_response = ""
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_response = part.text
+                            break
+
+            if text_response.strip():
                 # Check if this is a completion response or just asking questions
-                is_asking = any(phrase in response.text.lower() for phrase in [
+                is_asking = any(phrase in text_response.lower() for phrase in [
                     "need more information",
                     "please provide",
                     "can you tell me",
                     "what do you want",
                 ])
-                
+
                 # If asking questions and hasn't done anything yet, redirect
                 if is_asking and function_call_count == 0:
                     if verbose:
                         console.print("[yellow]Redirecting agent to take action...[/yellow]")
-                    
+
                     messages.append(
                         types.Content(
                             role="user",
@@ -450,22 +460,22 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                         )
                     )
                     continue
-                
+
                 # Task appears complete
                 console.print("\n[bold green]✓ Task Complete[/bold green]")
-                console.print(Panel(Markdown(response.text), border_style="green"))
-                
+                console.print(Panel(Markdown(text_response), border_style="green"))
+
                 console.print(f"\n[bold]Summary:[/bold]")
                 console.print(f"  • Iterations: {iteration + 1}")
                 console.print(f"  • Function calls: {function_call_count}")
                 console.print(f"  • Files explored: {len(files_read)}")
                 console.print(f"  • Files modified: {len(files_modified)}")
-                
+
                 if files_modified:
                     console.print(f"\n[bold cyan]Modified files:[/bold cyan]")
                     for f in sorted(files_modified):
                         console.print(f"  • {f}")
-                
+
                 break
             
             # No function calls and no text - agent is stuck
