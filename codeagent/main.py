@@ -361,15 +361,21 @@ def process_request(client, user_prompt, working_directory, verbose=False):
     files_modified = set()
     
     console.print(f"[bold cyan]Starting task: {user_prompt}[/bold cyan]\n")
-    
+
     # Get current available functions (includes MCP if initialized)
     available_functions = create_available_functions_tool()
-    
+
+    if verbose:
+        console.print(f"[dim]Available tools: {len(available_functions.function_declarations)} function declarations[/dim]")
+        for decl in available_functions.function_declarations:
+            console.print(f"[dim]  - {decl.name}[/dim]")
+
     for iteration in range(max_iterations):
         try:
             if verbose:
                 console.print(f"[dim]--- Iteration {iteration + 1} ---[/dim]")
-            
+                console.print(f"[dim]Message count: {len(messages)}[/dim]")
+
             # Generate response
             response = client.models.generate_content(
                 model="gemini-2.0-flash-001",
@@ -429,19 +435,9 @@ def process_request(client, user_prompt, working_directory, verbose=False):
                 continue
             
             # Check for text response (task completion)
-            # More robust check for text response
-            text_response = ""
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_response = part.text
-                            break
-
-            if text_response.strip():
+            if response.text:
                 # Check if this is a completion response or just asking questions
-                is_asking = any(phrase in text_response.lower() for phrase in [
+                is_asking = any(phrase in response.text.lower() for phrase in [
                     "need more information",
                     "please provide",
                     "can you tell me",
@@ -463,7 +459,7 @@ def process_request(client, user_prompt, working_directory, verbose=False):
 
                 # Task appears complete
                 console.print("\n[bold green]✓ Task Complete[/bold green]")
-                console.print(Panel(Markdown(text_response), border_style="green"))
+                console.print(Panel(Markdown(response.text), border_style="green"))
 
                 console.print(f"\n[bold]Summary:[/bold]")
                 console.print(f"  • Iterations: {iteration + 1}")
@@ -569,13 +565,13 @@ def interactive_mode(client, working_directory):
 async def initialize_mcp(servers=None):
     """Initialize MCP integration."""
     global mcp_integration
-    
+
     # Check if MCP is disabled
     if os.getenv("DISABLE_MCP", "").lower() in ["true", "1", "yes"]:
         console.print("[dim]MCP disabled via DISABLE_MCP environment variable[/dim]")
         mcp_integration = None
         return
-    
+
     if servers is None:
         # Check environment variable for enabled servers
         env_servers = os.getenv("MCP_ENABLED_SERVERS", "")
@@ -584,9 +580,9 @@ async def initialize_mcp(servers=None):
         else:
             # Default to context7 only (most reliable)
             servers = ["context7"]
-    
+
     console.print("\n[cyan]🔌 Initializing MCP servers...[/cyan]")
-    
+
     try:
         # Import here to catch import errors
         try:
@@ -596,26 +592,32 @@ async def initialize_mcp(servers=None):
             console.print("[yellow]Run: pip install mcp[/yellow]")
             mcp_integration = None
             return
-        
+
         mcp_integration = GentMCPIntegration()
         await mcp_integration.initialize(servers)
-        
+
         # Check if any servers connected
         connected = mcp_integration.get_connected_servers()
         if connected:
             console.print("[green]✓ MCP integration ready![/green]")
             console.print(f"[green]Connected servers: {', '.join(connected)}[/green]")
-            
+
             # Show tool count
             for server in connected:
                 info = mcp_integration.get_server_info(server)
                 if info:
                     console.print(f"  • {server}: {info['tools']} tools available")
+
+            # CRITICAL: Verify mcp_integration is properly set
+            if mcp_integration is not None:
+                console.print(f"[dim]✓ mcp_integration properly initialized with {len(connected)} servers[/dim]")
+            else:
+                console.print("[red]✗ ERROR: mcp_integration is None after initialization![/red]")
         else:
             console.print("[yellow]⚠️  No MCP servers connected[/yellow]")
             console.print("[yellow]Continuing with native functions only...[/yellow]")
             mcp_integration = None
-    
+
     except Exception as e:
         console.print(f"[yellow]⚠️  MCP initialization failed: {e}[/yellow]")
         console.print("[yellow]Continuing with native functions only...[/yellow]")
