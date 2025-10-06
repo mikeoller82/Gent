@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.markdown import Markdown
+from rich.columns import Columns
 from rich import print as rprint
 
 # Import schemas - updated paths
@@ -309,9 +310,39 @@ def call_function(function_call_part, working_directory, verbose=False):
             
             if diff:
                 console.print("\n[bold]Changes:[/bold]")
-                diff_text = '\n'.join(diff)
-                syntax = Syntax(diff_text, "diff", theme="monokai", line_numbers=False)
-                console.print(syntax)
+                
+                # Create side-by-side view
+                old_content_display = old_content if len(old_content) < 1000 else old_content[:1000] + "\n... (truncated)"
+                new_content_display = new_content if len(new_content) < 1000 else new_content[:1000] + "\n... (truncated)"
+                
+                # Detect language
+                ext = file_path.split('.')[-1] if '.' in file_path else "text"
+                lang_map = {
+                    'py': 'python',
+                    'js': 'javascript',
+                    'html': 'html',
+                    'css': 'css',
+                    'json': 'json',
+                    'md': 'markdown',
+                    'txt': 'text'
+                }
+                language = lang_map.get(ext, 'text')
+                
+                # Create syntax highlighted panels
+                old_panel = Panel(
+                    Syntax(old_content_display, language, theme="monokai", line_numbers=True),
+                    title="[red]Before[/red]",
+                    border_style="red"
+                )
+                
+                new_panel = Panel(
+                    Syntax(new_content_display, language, theme="monokai", line_numbers=True),
+                    title="[green]After[/green]",
+                    border_style="green"
+                )
+                
+                # Display side by side
+                console.print(Columns([old_panel, new_panel], equal=True, expand=True))
                 console.print()
         else:
             console.print("\n[bold]New file content:[/bold]")
