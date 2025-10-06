@@ -1,12 +1,13 @@
-🤖 GENT
-
-<div align="center">
- 
 ____  _____  _   _ _____ _____
   / ___|| ____|| \ | |  ___|_   _|
  | |  _ |  _|  |  \| | |  _   | |
  | |_| || |___ | |\  | |_| |  | |
   \____||_____||_| \_|\____/   |_|
+
+
+  🤖 GENT
+
+<div align="center">
 
  
 Autonomous AI Coding Assistant - Never Gives Up
