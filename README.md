@@ -465,7 +465,7 @@ Contributions welcome! Here's how:
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/codeagent.git
+git clone https://github.com/yourusername/Gent.git
 cd codeagent
 
 # Install in development mode
