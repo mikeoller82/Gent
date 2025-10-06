@@ -91,8 +91,8 @@ Implement → Test → Error? → Fix → Test → Success ✓
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/codeagent.git
-cd codeagent
+git clone https://github.com/yourusername/Gent.git
+cd Gent
 
 # Install with uv (recommended)
 uv pip install -e .
@@ -523,8 +523,8 @@ Contributions welcome! Here's how:
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/codeagent.git
-cd codeagent
+git clone https://github.com/yourusername/Gent.git
+cd Gent
 
 # Install in development mode
 uv pip install -e ".[dev]"
@@ -604,10 +604,10 @@ Apache 2.0 License - see [LICENSE](LICENSE) file for details.
 
 ## 📞 Connect
 
-- Report bugs: [Issues](https://github.com/yourusername/codeagent/issues)
-- Request features: [Discussions](https://github.com/yourusername/codeagent/discussions)
+- Report bugs: [Issues](https://github.com/mikeoller82/Gent/issues)
+- Request features: [Discussions](https://github.com/mikeoller82/Gent/discussions)
 - MCP Servers: [MCP Registry](https://github.com/modelcontextprotocol/servers)
-- Twitter: [@yourhandle](https://twitter.com/yourhandle)
+- Twitter: [@mikeoller1982](https://x.com/@mikeoller1982)
 
 ---
 
