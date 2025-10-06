@@ -5,7 +5,11 @@ description = "AI-powered coding agent"
 requires-python = ">=3.10"
 dependencies = [
     "google-genai",
+    "httpx>=0.28.1",
+    "mcp>=1.16.0",
     "rich>=13.0.0",
+    "mcp>=1.7.0",
+    "httpx>=0.27.0",
 ]
 
 [project.scripts]
