@@ -15,7 +15,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Powered by Gemini](https://img.shields.io/badge/Powered%20by-Gemini%202.0-brightgreen)](https://ai.google.dev/)
+[![Powered by Openrouter](https://img.shields.io/badge/Powered%20by-Openrouter%202.0-brightgreen)](https://openrouter.ai)
 [![MCP Enabled](https://img.shields.io/badge/MCP-Enabled-orange)](https://modelcontextprotocol.io/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
@@ -84,14 +84,14 @@ Implement → Test → Error? → Fix → Test → Success ✓
 
 ### Prerequisites
 - Python 3.10+
-- Google Gemini API key ([Get one here](https://makersuite.google.com/app/apikey))
+- Openrouter API key ([Get one here](https://openrouter.ai/settings/keys)
 - Node.js 18+ (for MCP servers via NPX)
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/Gent.git
+git clone https://github.com/mikeoller82/Gent.git
 cd Gent
 
 # Install with uv (recommended)
@@ -110,7 +110,7 @@ Create a `.env` file:
 
 ```bash
 # Required
-GEMINI_API_KEY=your-api-key-here
+OPENROUTER_API_KEY=your-api-key-here
 
 # Optional: Enable MCP servers (defaults to context7)
 MCP_ENABLED_SERVERS=context7,playwright,markitdown
@@ -523,7 +523,7 @@ Contributions welcome! Here's how:
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/Gent.git
+git clone https://github.com/mikeoller82/Gent.git
 cd Gent
 
 # Install in development mode
@@ -564,7 +564,7 @@ Solution: This is normal during exploration phase. Agent will eventually move to
 Solution: Check the error message. Often needs more context or has hit an edge case. Try rephrasing your request.
 
 **Issue: API errors**  
-Solution: Verify your `GEMINI_API_KEY` is set correctly and has quota remaining.
+Solution: Verify your `OPENROUTER_API_KEY` is set correctly and has quota remaining.
 
 ### MCP-Specific Issues
 
@@ -593,7 +593,7 @@ Apache 2.0 License - see [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Powered by [Google Gemini 2.0 Flash](https://ai.google.dev/)
+- Powered by [Openrouter](https://openrouter.ai/)
 - Terminal UI with [Rich](https://github.com/Textualize/rich)
 - MCP integration via [Model Context Protocol](https://modelcontextprotocol.io/)
 - Context7 for up-to-date documentation via [Upstash Context7](https://github.com/upstash/context7)
