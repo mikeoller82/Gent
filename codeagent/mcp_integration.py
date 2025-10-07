@@ -339,16 +339,16 @@ class MCPToGeminiConverter:
         """Extract the original MCP tool name and arguments."""
         function_name = gemini_function_call.get("name", "")
         arguments = gemini_function_call.get("args", {})
-        
+
         # Extract original tool name
         if function_name.startswith("mcp_"):
             # Remove mcp_ prefix and server name
             parts = function_name[4:].split("_", 1)
             if len(parts) == 2:
-                # Convert back to original format (underscores to hyphens)
-                original_name = parts[1].replace("_", "-")
+                # Keep underscores as-is (don't convert to hyphens)
+                original_name = parts[1]
                 return original_name, arguments
-        
+
         return function_name, arguments
 
 
